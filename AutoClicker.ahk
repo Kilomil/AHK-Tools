@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-clickInterval := 100  ; milliseconds between clicks
+clickInterval := 20  ; milliseconds between clicks
 isClicking := false
 
 F6:: {

@@ -2,7 +2,7 @@
 #SingleInstance Force
 
 ; ── Configuration ──────────────────────────────────────────────
-cooldownMs := 80  ; minimum milliseconds between clicks to count as intentional
+cooldownMs := 150  ; minimum milliseconds between clicks to count as intentional
 
 ; ── State tracking ─────────────────────────────────────────────
 lastClick := Map(
