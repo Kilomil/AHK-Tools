@@ -10,7 +10,7 @@
     if DllCall("IsClipboardFormatAvailable", "UInt", 2) {   ; CF_BITMAP = 2
         outPath := folder "\" timestamp ".png"
         SaveClipboardImage(outPath)
-        OpenOrFocusFolder(folder)
+        OpenAndSelectFile(outPath)
         return
     }
     ; --- Fall back to text ---
@@ -19,18 +19,19 @@
         outPath := folder "\" timestamp ".txt"
         FileAppend(txt, outPath, "UTF-8")
         TrayTip("Pasted Files", "Text saved: " outPath)
-        OpenOrFocusFolder(folder)
+        OpenAndSelectFile(outPath)
         return
     }
     TrayTip("Pasted Files", "Clipboard is empty or unsupported format.")
 }
 ; ---------------------------------------------------------------
-; Open the folder in Explorer.  If an Explorer window already
-; shows that path, just bring it to the foreground.
-; Uses the Shell.Application COM object to enumerate windows.
-; ("=" is case-insensitive in AHK v2, so no StrLower needed.)
+; Open the parent folder and highlight the saved file.
+;  - If the folder is already open in Explorer: focus the window
+;    and select the file via Shell COM.
+;  - Otherwise: run  explorer /select,"<path>"  which does both.
 ; ---------------------------------------------------------------
-OpenOrFocusFolder(folderPath) {
+OpenAndSelectFile(filePath) {
+    SplitPath(filePath, &fileName, &folderPath)
     folderPath := RTrim(folderPath, "\")
     try {
         shell := ComObject("Shell.Application")
@@ -41,14 +42,24 @@ OpenOrFocusFolder(folderPath) {
                 if (url = "")
                     continue
                 decoded := RTrim(UrlToPath(url), "\")
-                if (decoded = folderPath) {
+                if (decoded = folderPath) {             ; = is case-insensitive in AHK v2
                     DllCall("SetForegroundWindow", "Ptr", win.HWND)
+                    ; Select (highlight) the file inside the already-open window
+                    try {
+                        fv := win.Document              ; IShellFolderViewDual
+                        item := fv.Folder.ParseName(fileName)
+                        if (item) {
+                            ; 0x1D = SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_ENSUREVISIBLE | SVSI_FOCUSED
+                            fv.SelectItem(item, 0x1D)
+                        }
+                    }
                     return
                 }
             }
         }
     }
-    Run('explorer.exe "' folderPath '"')
+    ; No existing window – explorer /select opens the folder AND highlights the file
+    Run('explorer.exe /select,"' filePath '"')
 }
 ; Convert a file:/// URL to a local path
 ; e.g. "file:///C:/Foo%20Bar" -> "C:\Foo Bar"
