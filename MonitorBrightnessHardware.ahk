@@ -36,13 +36,13 @@ nightlight      := Map()      ; per-monName: warmth level
 hDxva2 := DllCall("LoadLibrary", "Str", "dxva2.dll", "Ptr")
 
 ; ── Hotkeys ────────────────────────────────────────────────────
-$!WheelUp::    AdjustBrightness(1)
-$!WheelDown::  AdjustBrightness(-1)
-$!MButton::    ResetMonitor("brightness")
+$!+WheelUp::    AdjustBrightness(1)
+$!+WheelDown::  AdjustBrightness(-1)
+$!+MButton::    ResetMonitor("brightness")
 
-$^WheelUp::    AdjustNightlight(-nightlightStep)
-$^WheelDown::  AdjustNightlight(nightlightStep)
-$^MButton::    ResetMonitor("nightlight")
+$^+WheelUp::    AdjustNightlight(-nightlightStep)
+$^+WheelDown::  AdjustNightlight(nightlightStep)
+$^+MButton::    ResetMonitor("nightlight")
 
 F10:: ExitApp
 ; F11:: RunDiagnostic()
@@ -509,5 +509,5 @@ A_TrayMenu.Add("Reset All", (*) => CleanupAll())
 A_TrayMenu.Add("Exit", (*) => ExitApp())
 
 TrayTip("Monitor Brightness (DDC/CI)"
-    , "Alt+Scroll = hardware brightness`nCtrl+Scroll = night light`nMiddleClick+modifier = reset`nF10 to exit"
+    , "Alt+Shift+Scroll = hardware brightness`nCtrl+Shift+Scroll = night light`nMiddleClick+modifier = reset`nF10 to exit"
     , 1)
