@@ -8,8 +8,8 @@ entryColor     := "00CED1"   ; cyan for arrival
 flashColor     := "FFFFFF"   ; white arrival flash
 portalMaxSize  := 80         ; max ring radius in pixels
 ringWidth      := 14         ; ring thickness in pixels
-animFrames     := 16         ; frames per animation
-animDuration   := 300        ; total ms per animation
+animFrames     := 8          ; frames per animation
+animDuration   := 120        ; total ms per animation
 
 ; ── Hotkeys ────────────────────────────────────────────────────
 $^XButton1:: TeleportPrev()
@@ -177,7 +177,7 @@ PortalExpand(cx, cy) {
     outerRgn := DllCall("CreateEllipticRgn", "Int", 0, "Int", 0, "Int", flashD, "Int", flashD, "Ptr")
     DllCall("SetWindowRgn", "Ptr", gf.Hwnd, "Ptr", outerRgn, "Int", 1)
     WinSetTransparent(90, gf.Hwnd)
-    Sleep(60)
+    Sleep(30)
     gf.Destroy()
 }
 
