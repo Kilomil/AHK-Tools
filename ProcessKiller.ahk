@@ -220,7 +220,7 @@ OpenKiller() {
     listView.ModifyCol(1, 30)      ; icon/watchlist marker
     listView.ModifyCol(2, 210)     ; process name
     listView.ModifyCol(3, 440)     ; window title
-    listView.ModifyCol(4, 150)     ; memory
+    listView.ModifyCol(4, 125)     ; memory — leaves room for the vertical scrollbar so horizontal one never appears
 
     ; Custom header row (since native headers resist theming) — all clickable for sort
     killerGui.SetFont("s9 c" accentText " Bold", "Segoe UI")
