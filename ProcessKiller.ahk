@@ -2,24 +2,24 @@
 #SingleInstance Force
 
 ; ── Configuration ──────────────────────────────────────────────
-; Watchlist: display name → process name patterns (comma-separated)
-; These always appear at the top when running
+; Favorites are loaded from / saved to this file.
+; Format: one entry per line, "FriendlyName=proc1.exe,proc2.exe"
+favoritesFile := A_AppData "\ProcessKiller\favorites.ini"
+
+; Default favorites — seeded on first run when no file exists yet
+defaultWatchlist := Map()
+  defaultWatchlist["Unity"]     := "Unity.exe,Unity Hub.exe,Unity Editor.exe"
+  defaultWatchlist["Rider"]     := "rider64.exe,rider.exe,JetBrains.Rider.exe"
+  defaultWatchlist["Fork"]      := "Fork.exe"
+  defaultWatchlist["Charles"]   := "charles.exe"
+  defaultWatchlist["Slack"]     := "slack.exe"
+  defaultWatchlist["Spotify"]   := "Spotify.exe"
+  defaultWatchlist["VS Code"]   := "Code.exe"
+  defaultWatchlist["Greenshot"] := "Greenshot.exe"
+
+; Active watchlist — loaded from disk below
 watchlist := Map()
-  watchlist["Unity"]    := "Unity.exe,Unity Hub.exe,Unity Editor.exe"
-  watchlist["Rider"]    := "rider64.exe,rider.exe,JetBrains.Rider.exe"
-  watchlist["Fork"]     := "Fork.exe"
-; watchlist["Explorer"] := "explorer.exe"
-; watchlist["Edge"]     := "msedge.exe"
-; watchlist["Brave"]    := "brave.exe"
-  watchlist["Charles"]  := "charles.exe"
-; watchlist["Chrome"]   := "chrome.exe"
-; watchlist["Discord"]  := "Discord.exe"
-  watchlist["Slack"]    := "slack.exe"
-; watchlist["Teams"]    := "ms-teams.exe,Teams.exe"
-  watchlist["Spotify"]  := "Spotify.exe"
-; watchlist["Steam"]    := "steam.exe,steamwebhelper.exe"
-  watchlist["VS Code"]  := "Code.exe"
-  watchlist["Greenshot"]  := "Greenshot.exe"
+LoadFavorites()
 
 ; Colors — warm sepia dark theme
 guiBg       := "2A2118"      ; dark warm brown background
@@ -53,6 +53,104 @@ listView := ""
 searchBox := ""
 statusBar := ""
 showAllBox := ""
+clearBtn := ""
+
+; ══════════════════════════════════════════════════════════════
+; FAVORITES PERSISTENCE
+; ══════════════════════════════════════════════════════════════
+
+LoadFavorites() {
+    global watchlist, defaultWatchlist, favoritesFile
+    watchlist := Map()
+
+    if !FileExist(favoritesFile) {
+        ; First run — seed with defaults and write them to disk
+        for name, patterns in defaultWatchlist
+            watchlist[name] := patterns
+        SaveFavorites()
+        return
+    }
+
+    try {
+        content := FileRead(favoritesFile, "UTF-8")
+        for line in StrSplit(content, "`n", "`r") {
+            line := Trim(line)
+            if (line = "" || SubStr(line, 1, 1) = ";")
+                continue
+            eq := InStr(line, "=")
+            if !eq
+                continue
+            friendly := Trim(SubStr(line, 1, eq - 1))
+            patterns := Trim(SubStr(line, eq + 1))
+            if (friendly != "" && patterns != "")
+                watchlist[friendly] := patterns
+        }
+    }
+}
+
+SaveFavorites() {
+    global watchlist, favoritesFile
+    dir := RegExReplace(favoritesFile, "\\[^\\]+$")
+    if !DirExist(dir)
+        DirCreate(dir)
+
+    content := "; Process Killer favorites`n; Format: FriendlyName=proc1.exe,proc2.exe`n`n"
+    for friendly, patterns in watchlist
+        content .= friendly "=" patterns "`n"
+
+    try FileDelete(favoritesFile)
+    FileAppend(content, favoritesFile, "UTF-8")
+}
+
+IsFavorite(procName) {
+    global watchlist
+    for _, patterns in watchlist {
+        for _, p in StrSplit(patterns, ",") {
+            if (Trim(p) = procName)
+                return true
+        }
+    }
+    return false
+}
+
+AddFavorite(procName) {
+    global watchlist
+    if IsFavorite(procName)
+        return
+    ; Use process name without .exe as friendly name; ensure uniqueness
+    friendly := RegExReplace(procName, "i)\.exe$")
+    base := friendly, n := 2
+    while watchlist.Has(friendly)
+        friendly := base " (" n++ ")"
+    watchlist[friendly] := procName
+    SaveFavorites()
+    RefreshList()
+}
+
+RemoveFavorite(procName) {
+    global watchlist
+    toDelete := []
+    for friendly, patterns in watchlist {
+        remaining := []
+        for _, p in StrSplit(patterns, ",") {
+            p := Trim(p)
+            if (p != "" && p != procName)
+                remaining.Push(p)
+        }
+        if remaining.Length = 0
+            toDelete.Push(friendly)
+        else {
+            joined := ""
+            for _, p in remaining
+                joined .= (joined = "" ? "" : ",") p
+            watchlist[friendly] := joined
+        }
+    }
+    for _, f in toDelete
+        watchlist.Delete(f)
+    SaveFavorites()
+    RefreshList()
+}
 
 ; ══════════════════════════════════════════════════════════════
 ; GUI
@@ -77,10 +175,16 @@ OpenKiller() {
 
     ; Search bar
     killerGui.AddText("x10 y12 w50 h24 +0x200", "Filter:")
-    searchBox := killerGui.AddEdit("x65 y10 w250 h26 Background" searchBg " c" guiText)
-    searchBox.OnEvent("Change", (*) => RefreshList())
+    searchBox := killerGui.AddEdit("x65 y10 w224 h26 Background" searchBg " c" guiText)
+    searchBox.OnEvent("Change", OnSearchChange)
     ; Apply dark theme immediately so border is dark from the start
     DllCall("uxtheme\SetWindowTheme", "Ptr", searchBox.Hwnd, "Str", "DarkMode_CFD", "Ptr", 0)
+
+    ; Clear button — placed just right of the search box, only visible when there is text
+    global clearBtn
+    clearBtn := killerGui.AddText("x291 y10 w24 h26 +0x200 +Center Background" btnBg " c" accentText " Hidden", "✕")
+    clearBtn.OnEvent("Click", (*) => ClearSearch())
+    SetupBtnHover(clearBtn, btnBg)
 
     ; Show-all-processes checkbox. Defaults to checked when the watchlist is empty.
     defaultChecked := (watchlist.Count = 0) ? 1 : 0
@@ -127,6 +231,9 @@ OpenKiller() {
     ; Double-click to kill
     listView.OnEvent("DoubleClick", (*) => KillSelected())
 
+    ; Right-click → context menu (add/remove favorite, kill)
+    listView.OnEvent("ContextMenu", OnListContextMenu)
+
     ; Middle-click to instantly kill the row under the cursor
     OnMessage(0x208, KillOnMiddleClick)  ; WM_MBUTTONUP
 
@@ -145,10 +252,26 @@ OpenKiller() {
 
     ; Register buttons for hover tracking
     global hoverBtns
-    hoverBtns := [btnRefresh, btnKill, btnKillAll]
+    hoverBtns := [btnRefresh, btnKill, btnKillAll, clearBtn]
     SetTimer(TrackBtnHover, 16)
 
     isOpen := true
+    RefreshList()
+}
+
+OnSearchChange(*) {
+    global clearBtn, searchBox
+    if clearBtn
+        clearBtn.Visible := (searchBox.Value != "")
+    RefreshList()
+}
+
+ClearSearch() {
+    global searchBox, clearBtn
+    searchBox.Value := ""
+    if clearBtn
+        clearBtn.Visible := false
+    try searchBox.Focus()
     RefreshList()
 }
 
@@ -461,6 +584,24 @@ KillAllShown() {
     ShowKillTooltip(pids.Length)
     Sleep(300)
     RefreshList()
+}
+
+; Right-click context menu on a row — add/remove favorite, kill
+OnListContextMenu(lv, itemIndex, isRightClick, x, y) {
+    if (itemIndex = 0)
+        return
+    procName := lv.GetText(itemIndex, 2)
+    if (procName = "")
+        return
+
+    m := Menu()
+    if IsFavorite(procName)
+        m.Add("Remove '" procName "' from favorites", (*) => RemoveFavorite(procName))
+    else
+        m.Add("Add '" procName "' to favorites", (*) => AddFavorite(procName))
+    m.Add()
+    m.Add("Kill", (*) => KillSelected())
+    m.Show(x, y)
 }
 
 ; Middle-click on a row kills it instantly (no selection needed)
