@@ -52,6 +52,7 @@ isOpen := false
 listView := ""
 searchBox := ""
 statusBar := ""
+showAllBox := ""
 
 ; ══════════════════════════════════════════════════════════════
 ; GUI
@@ -66,7 +67,7 @@ ToggleKiller() {
 }
 
 OpenKiller() {
-    global killerGui, isOpen, listView, searchBox, statusBar, watchlist
+    global killerGui, isOpen, listView, searchBox, statusBar, showAllBox, watchlist
 
     killerGui := Gui("+AlwaysOnTop -MinimizeBox", "Process Killer")
     killerGui.BackColor := guiBg
@@ -81,37 +82,43 @@ OpenKiller() {
     ; Apply dark theme immediately so border is dark from the start
     DllCall("uxtheme\SetWindowTheme", "Ptr", searchBox.Hwnd, "Str", "DarkMode_CFD", "Ptr", 0)
 
+    ; Show-all-processes checkbox. Defaults to checked when the watchlist is empty.
+    defaultChecked := (watchlist.Count = 0) ? 1 : 0
+    showAllBox := killerGui.AddCheckbox("x325 y13 w190 h22 Background" guiBg " c" guiText " Checked" defaultChecked
+        , "Show all processes")
+    showAllBox.OnEvent("Click", (*) => RefreshList())
+
     ; Custom buttons with hover/click effects
     killerGui.SetFont("s9 c" guiText " Bold", "Segoe UI")
 
-    btnRefresh := killerGui.AddText("x325 y10 w80 h26 +0x200 +Center Background" btnBg, "  Refresh  ")
+    btnRefresh := killerGui.AddText("x525 y10 w80 h26 +0x200 +Center Background" btnBg, "  Refresh  ")
     btnRefresh.OnEvent("Click", (*) => RefreshList())
     SetupBtnHover(btnRefresh, btnBg)
 
-    btnKill := killerGui.AddText("x415 y10 w105 h26 +0x200 +Center Background" btnKillBg, "  Kill Selected  ")
+    btnKill := killerGui.AddText("x615 y10 w105 h26 +0x200 +Center Background" btnKillBg, "  Kill Selected  ")
     btnKill.OnEvent("Click", (*) => KillSelected())
     SetupBtnHover(btnKill, btnKillBg)
 
-    btnKillAll := killerGui.AddText("x530 y10 w110 h26 +0x200 +Center Background" btnNukeBg, "  Kill All Shown  ")
+    btnKillAll := killerGui.AddText("x730 y10 w110 h26 +0x200 +Center Background" btnNukeBg, "  Kill All Shown  ")
     btnKillAll.OnEvent("Click", (*) => KillAllShown())
     SetupBtnHover(btnKillAll, btnNukeBg)
 
     ; ListView
     killerGui.SetFont("s10 c" guiText " Norm", "Segoe UI")
-    listView := killerGui.AddListView("x10 y45 w630 h420 Grid Multi +LV0x20 -Hdr Background" listBg " c" guiText
-        , ["", "Name", "Process", "Memory (MB)"])
+    listView := killerGui.AddListView("x10 y45 w830 h420 Grid Multi +LV0x20 -Hdr Background" listBg " c" guiText
+        , ["", "Process", "Title", "Memory (MB)"])
 
     listView.ModifyCol(1, 30)      ; icon/watchlist marker
-    listView.ModifyCol(2, 130)     ; friendly name
-    listView.ModifyCol(3, 280)     ; process name
+    listView.ModifyCol(2, 210)     ; process name
+    listView.ModifyCol(3, 440)     ; window title
     listView.ModifyCol(4, 150)     ; memory
 
     ; Custom header row (since native headers resist theming)
     killerGui.SetFont("s9 c" accentText " Bold", "Segoe UI")
     killerGui.AddText("x10 y45 w30 h20 +0x200 Background" searchBg, "")
-    killerGui.AddText("x40 y45 w130 h20 +0x200 Background" searchBg, "  Name")
-    killerGui.AddText("x170 y45 w280 h20 +0x200 Background" searchBg, "  Process")
-    memHeader := killerGui.AddText("x450 y45 w190 h20 +0x200 Background" searchBg, "  Memory (MB)  ↓")
+    killerGui.AddText("x40 y45 w210 h20 +0x200 Background" searchBg, "  Process")
+    killerGui.AddText("x250 y45 w440 h20 +0x200 Background" searchBg, "  Title")
+    memHeader := killerGui.AddText("x690 y45 w150 h20 +0x200 Background" searchBg, "  Memory (MB)  ↓")
     memHeader.OnEvent("Click", (*) => ToggleMemSort())
 
     ; Shift ListView down to make room for custom header
@@ -120,11 +127,14 @@ OpenKiller() {
     ; Double-click to kill
     listView.OnEvent("DoubleClick", (*) => KillSelected())
 
+    ; Middle-click to instantly kill the row under the cursor
+    OnMessage(0x208, KillOnMiddleClick)  ; WM_MBUTTONUP
+
     ; Status bar
     killerGui.SetFont("s9 c" dimText, "Segoe UI")
-    statusBar := killerGui.AddText("x10 y472 w630 h22", "")
+    statusBar := killerGui.AddText("x10 y472 w830 h22", "")
 
-    killerGui.Show("w650 h500")
+    killerGui.Show("w850 h500")
 
     ; Dark title bar
     val := 1
@@ -223,6 +233,7 @@ CloseKiller() {
     SetTimer(TrackBtnHover, 0)  ; stop hover tracking
     hoverBtns := []
     currentHover := ""
+    try OnMessage(0x208, KillOnMiddleClick, 0)  ; unregister middle-click handler
     if killerGui {
         killerGui.Destroy()
         killerGui := ""
@@ -239,14 +250,35 @@ rowPidMap := Map()
 sortDescending := true         ; current sort direction for memory column
 
 RefreshList() {
-    global listView, searchBox, statusBar, watchlist, rowPidMap, sortDescending
+    global listView, searchBox, statusBar, showAllBox, watchlist, rowPidMap, sortDescending
 
     if !listView
         return
 
     filter := searchBox.Value
+    showAll := showAllBox ? showAllBox.Value : 0
     listView.Delete()
     rowPidMap := Map()
+
+    ; Build PID → window title map (matches Task Manager's "main window" selection)
+    ; Task Manager picks the unowned, visible top-level window — same as .NET's Process.MainWindowHandle
+    pidTitles := Map()
+    for hwnd in WinGetList() {
+        try {
+            ; Skip owned windows (dialogs, tool windows, secondary popups like "Addressables Report")
+            if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")   ; GW_OWNER = 4
+                continue
+            ; Skip non-visible windows
+            if !DllCall("IsWindowVisible", "Ptr", hwnd)
+                continue
+            title := WinGetTitle("ahk_id " hwnd)
+            if (title = "")
+                continue
+            pid := WinGetPID("ahk_id " hwnd)
+            if !pidTitles.Has(pid)
+                pidTitles[pid] := title
+        }
+    }
 
     ; Get all running processes via Win32 snapshot (much faster than WMI)
     processes := Map()
@@ -314,19 +346,21 @@ RefreshList() {
             }
 
             for _, info in processes[pattern] {
-                rows.Push({star: "★", friendly: friendlyName, proc: pattern, mem: info.mem, pid: info.pid})
+                title := pidTitles.Has(info.pid) ? pidTitles[info.pid] : ""
+                rows.Push({star: "★", friendly: friendlyName, proc: pattern, title: title, mem: info.mem, pid: info.pid})
             }
             processes.Delete(pattern)
         }
     }
 
-    ; ── Other processes (only when filter is active) ──────────
-    if (filter != "") {
+    ; ── Other processes (when "show all" is checked, or when filter is active) ─
+    if (showAll || filter != "") {
         for procName, instances in processes {
-            if !InStr(procName, filter)
+            if (filter != "" && !InStr(procName, filter))
                 continue
             for _, info in instances {
-                rows.Push({star: "", friendly: "", proc: procName, mem: info.mem, pid: info.pid})
+                title := pidTitles.Has(info.pid) ? pidTitles[info.pid] : ""
+                rows.Push({star: "", friendly: "", proc: procName, title: title, mem: info.mem, pid: info.pid})
             }
         }
     }
@@ -337,12 +371,12 @@ RefreshList() {
     ; ── Add sorted rows to ListView ───────────────────────────
     totalMem := 0.0
     for idx, r in rows {
-        rowNum := listView.Add("", r.star, r.friendly, r.proc, r.mem)
+        rowNum := listView.Add("", r.star, r.proc, r.title, r.mem)
         rowPidMap[rowNum] := r.pid
         totalMem += r.mem
     }
 
-    statusBar.Value := rows.Length " processes  |  " Round(totalMem, 0) " MB total  |  Double-click or select + Kill  |  Ctrl+Shift+Esc to toggle"
+    statusBar.Value := rows.Length " processes  |  " Round(totalMem, 0) " MB total  |  Middle/Double-click to kill  |  Ctrl+Shift+Esc to toggle"
 }
 
 SortRowsByMemory(rows, descending) {
@@ -406,7 +440,7 @@ KillAllShown() {
 
     pids := []
     loop listView.GetCount() {
-        procName := listView.GetText(A_Index, 3)
+        procName := listView.GetText(A_Index, 2)
 
         ; Safety: never kill explorer without it being explicitly filtered
         if (procName = "explorer.exe")
@@ -427,6 +461,37 @@ KillAllShown() {
     ShowKillTooltip(pids.Length)
     Sleep(300)
     RefreshList()
+}
+
+; Middle-click on a row kills it instantly (no selection needed)
+KillOnMiddleClick(wParam, lParam, msg, hwnd) {
+    global listView, rowPidMap
+    if !listView || hwnd != listView.Hwnd
+        return
+
+    x := lParam & 0xFFFF
+    if (x & 0x8000)                   ; sign-extend
+        x -= 0x10000
+    y := (lParam >> 16) & 0xFFFF
+    if (y & 0x8000)
+        y -= 0x10000
+
+    ; LVHITTESTINFO: POINT(x,y) + UINT flags + int iItem + int iSubItem
+    hti := Buffer(16 + 2 * A_PtrSize, 0)
+    NumPut("Int", x, hti, 0)
+    NumPut("Int", y, hti, 4)
+    SendMessage(0x1012, 0, hti.Ptr, , "ahk_id " listView.Hwnd)  ; LVM_HITTEST
+    row := NumGet(hti, 12, "Int") + 1  ; iItem is 0-based; listView rows are 1-based
+
+    if (row < 1 || !rowPidMap.Has(row))
+        return
+
+    pid := rowPidMap[row]
+    try {
+        RunWait('taskkill /F /PID ' pid,, "Hide")
+        ShowKillTooltip(1)
+        SetTimer(() => RefreshList(), -200)
+    }
 }
 
 ShowKillTooltip(count) {
