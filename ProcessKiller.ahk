@@ -209,7 +209,8 @@ OpenKiller() {
 
     ; ListView
     killerGui.SetFont("s10 c" guiText " Norm", "Segoe UI")
-    listView := killerGui.AddListView("x10 y45 w830 h420 Grid Multi +LV0x20 -Hdr Background" listBg " c" guiText
+    ; LV0x10020 = LVS_EX_FULLROWSELECT (0x20) | LVS_EX_DOUBLEBUFFER (0x10000) — double buffering kills cell flicker
+    listView := killerGui.AddListView("x10 y45 w830 h420 Grid Multi +LV0x10020 -Hdr Background" listBg " c" guiText
         , ["", "Process", "Title", "Memory (MB)"])
 
     listView.ModifyCol(1, 30)      ; icon/watchlist marker
