@@ -54,6 +54,10 @@ searchBox := ""
 statusBar := ""
 showAllBox := ""
 clearBtn := ""
+favHeader := ""
+procHeader := ""
+titleHeader := ""
+memHeader := ""
 
 ; ══════════════════════════════════════════════════════════════
 ; FAVORITES PERSISTENCE
@@ -218,13 +222,18 @@ OpenKiller() {
     listView.ModifyCol(3, 440)     ; window title
     listView.ModifyCol(4, 150)     ; memory
 
-    ; Custom header row (since native headers resist theming)
+    ; Custom header row (since native headers resist theming) — all clickable for sort
     killerGui.SetFont("s9 c" accentText " Bold", "Segoe UI")
-    killerGui.AddText("x10 y45 w30 h20 +0x200 Background" searchBg, "")
-    killerGui.AddText("x40 y45 w210 h20 +0x200 Background" searchBg, "  Process")
-    killerGui.AddText("x250 y45 w440 h20 +0x200 Background" searchBg, "  Title")
-    memHeader := killerGui.AddText("x690 y45 w150 h20 +0x200 Background" searchBg, "  Memory (MB)  ↓")
-    memHeader.OnEvent("Click", (*) => ToggleMemSort())
+    global favHeader, procHeader, titleHeader, memHeader
+    favHeader   := killerGui.AddText("x10 y45 w30 h20 +0x200 +Center Background" searchBg, "")
+    procHeader  := killerGui.AddText("x40 y45 w210 h20 +0x200 Background" searchBg, "  Process")
+    titleHeader := killerGui.AddText("x250 y45 w440 h20 +0x200 Background" searchBg, "  Title")
+    memHeader   := killerGui.AddText("x690 y45 w150 h20 +0x200 Background" searchBg, "  Memory (MB)")
+    favHeader.OnEvent("Click",   (*) => SetSort("fav"))
+    procHeader.OnEvent("Click",  (*) => SetSort("proc"))
+    titleHeader.OnEvent("Click", (*) => SetSort("title"))
+    memHeader.OnEvent("Click",   (*) => SetSort("mem"))
+    UpdateHeaderIndicators()
 
     ; Shift ListView down to make room for custom header
     listView.Move(, 65,, 400)
@@ -276,10 +285,33 @@ ClearSearch() {
     RefreshList()
 }
 
-ToggleMemSort() {
-    global sortDescending
-    sortDescending := !sortDescending
+; Switch active sort column or flip direction if already active
+SetSort(col) {
+    global sortColumn, sortDescending
+    if (col = sortColumn) {
+        sortDescending := !sortDescending
+    } else {
+        sortColumn := col
+        ; Sensible defaults: numeric/favorites descending, text ascending
+        sortDescending := (col = "mem" || col = "fav")
+    }
+    UpdateHeaderIndicators()
     RefreshList()
+}
+
+; Rewrite header labels so only the active sort column shows an arrow
+UpdateHeaderIndicators() {
+    global sortColumn, sortDescending, favHeader, procHeader, titleHeader, memHeader
+    arrow := sortDescending ? " ↓" : " ↑"
+
+    if favHeader
+        favHeader.Value   := (sortColumn = "fav")   ? "★" arrow : ""
+    if procHeader
+        procHeader.Value  := "  Process"  ((sortColumn = "proc")  ? arrow : "")
+    if titleHeader
+        titleHeader.Value := "  Title"    ((sortColumn = "title") ? arrow : "")
+    if memHeader
+        memHeader.Value   := "  Memory (MB)" ((sortColumn = "mem") ? arrow : "")
 }
 
 ; ── Button hover/click effects ────────────────────────────────
@@ -371,10 +403,11 @@ CloseKiller() {
 
 ; PID lookup: row number → PID (since PID column is hidden)
 rowPidMap := Map()
-sortDescending := true         ; current sort direction for memory column
+sortColumn := "mem"            ; active sort column: "fav" | "proc" | "title" | "mem"
+sortDescending := true         ; current sort direction
 
 RefreshList() {
-    global listView, searchBox, statusBar, showAllBox, watchlist, rowPidMap, sortDescending
+    global listView, searchBox, statusBar, showAllBox, watchlist, rowPidMap, sortColumn, sortDescending
 
     if !listView
         return
@@ -489,8 +522,8 @@ RefreshList() {
         }
     }
 
-    ; ── Sort by memory (descending by default) ────────────────
-    SortRowsByMemory(rows, sortDescending)
+    ; ── Sort by the active column ─────────────────────────────
+    SortRows(rows, sortColumn, sortDescending)
 
     ; ── Add sorted rows to ListView ───────────────────────────
     totalMem := 0.0
@@ -503,15 +536,17 @@ RefreshList() {
     statusBar.Value := rows.Length " processes  |  " Round(totalMem, 0) " MB total  |  Middle/Double-click to kill  |  Ctrl+Shift+Esc to toggle"
 }
 
-SortRowsByMemory(rows, descending) {
-    ; Simple insertion sort by .mem
+; Generic insertion sort on rows by the given column.
+; column: "fav" | "proc" | "title" | "mem"
+SortRows(rows, column, descending) {
     n := rows.Length
     loop n - 1 {
         i := A_Index + 1
         key := rows[i]
         j := i - 1
         while (j >= 1) {
-            if (descending ? rows[j].mem < key.mem : rows[j].mem > key.mem) {
+            cmp := CompareRows(rows[j], key, column)
+            if (descending ? cmp < 0 : cmp > 0) {
                 rows[j + 1] := rows[j]
                 j--
             } else
@@ -519,6 +554,24 @@ SortRowsByMemory(rows, descending) {
         }
         rows[j + 1] := key
     }
+}
+
+; Returns negative / 0 / positive depending on a<b, a=b, a>b for the chosen column.
+CompareRows(a, b, column) {
+    switch column {
+        case "mem":
+            return (a.mem < b.mem) ? -1 : (a.mem > b.mem) ? 1 : 0
+        case "fav":
+            ; Non-empty star ranks above empty
+            av := a.star != "" ? 1 : 0
+            bv := b.star != "" ? 1 : 0
+            return av - bv
+        case "proc":
+            return StrCompare(a.proc, b.proc, false)
+        case "title":
+            return StrCompare(a.title, b.title, false)
+    }
+    return 0
 }
 
 
