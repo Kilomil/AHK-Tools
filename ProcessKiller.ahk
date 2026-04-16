@@ -744,6 +744,12 @@ KillAllShown() {
     if (pids.Length = 0)
         return
 
+    killerGui.Opt("+OwnDialogs")
+    result := MsgBox("Kill " pids.Length " process" (pids.Length > 1 ? "es" : "") "?`n`nThis cannot be undone.",
+        "Confirm Kill All", "YesNo Icon! T10")
+    if (result != "Yes")
+        return
+
     pidArgs := ""
     for _, pid in pids
         pidArgs .= " /PID " pid
