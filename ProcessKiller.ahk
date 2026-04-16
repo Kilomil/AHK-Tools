@@ -252,6 +252,9 @@ OpenKiller() {
     ; Middle-click to instantly kill the row under the cursor
     OnMessage(0x208, KillOnMiddleClick)  ; WM_MBUTTONUP
 
+    ; Fat resize borders
+    OnMessage(0x84, OnNcHitTest)  ; WM_NCHITTEST
+
     ; Status bar
     killerGui.SetFont("s9 c" dimText, "Segoe UI")
     statusBar := killerGui.AddText("x10 y472 w830 h22", "")
@@ -401,6 +404,7 @@ CloseKiller() {
     hoverBtns := []
     currentHover := ""
     try OnMessage(0x208, KillOnMiddleClick, 0)  ; unregister middle-click handler
+    try OnMessage(0x84, OnNcHitTest, 0)        ; unregister resize border handler
     if killerGui {
         killerGui.Destroy()
         killerGui := ""
@@ -457,6 +461,54 @@ OnGuiSize(thisGui, minMax, w, h) {
     ; Status bar at bottom
     if statusBar
         statusBar.Move(margin, h - 28, lvW)
+}
+
+; ── Fat resize borders (WM_NCHITTEST override) ───────────────
+; Default border is ~4px; this makes it ~20px for easy grabbing
+OnNcHitTest(wParam, lParam, msg, hwnd) {
+    global killerGui
+    if !killerGui || hwnd != killerGui.Hwnd
+        return
+
+    static HTLEFT := 10, HTRIGHT := 11, HTTOP := 12, HTTOPLEFT := 13
+    static HTTOPRIGHT := 14, HTBOTTOM := 15, HTBOTTOMLEFT := 16, HTBOTTOMRIGHT := 17
+
+    border := 30  ; px — ~7x default
+
+    x := lParam & 0xFFFF
+    if (x & 0x8000)
+        x -= 0x10000
+    y := (lParam >> 16) & 0xFFFF
+    if (y & 0x8000)
+        y -= 0x10000
+
+    ; Get window rect in screen coords
+    rect := Buffer(16)
+    DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", rect)
+    wL := NumGet(rect, 0, "Int"), wT := NumGet(rect, 4, "Int")
+    wR := NumGet(rect, 8, "Int"), wB := NumGet(rect, 12, "Int")
+
+    left   := (x - wL) < border
+    right  := (wR - x) < border
+    top    := (y - wT) < border
+    bottom := (wB - y) < border
+
+    if (top && left)
+        return HTTOPLEFT
+    if (top && right)
+        return HTTOPRIGHT
+    if (bottom && left)
+        return HTBOTTOMLEFT
+    if (bottom && right)
+        return HTBOTTOMRIGHT
+    if left
+        return HTLEFT
+    if right
+        return HTRIGHT
+    if top
+        return HTTOP
+    if bottom
+        return HTBOTTOM
 }
 
 ; ══════════════════════════════════════════════════════════════
