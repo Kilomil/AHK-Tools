@@ -853,5 +853,13 @@ A_TrayMenu.Disable("Process Killer")
 A_TrayMenu.Add()
 A_TrayMenu.Add("Open", (*) => OpenKiller())
 A_TrayMenu.Add("Exit", (*) => ExitApp())
+A_IconTip := "Process Killer"
+
+; Left-click tray icon to open/toggle
+OnMessage(0x404, OnTrayClick)  ; AHK_NOTIFYICON
+OnTrayClick(wParam, lParam, *) {
+    if (lParam = 0x202)  ; WM_LBUTTONUP
+        ToggleKiller()
+}
 
 TrayTip("Process Killer", "Ctrl+Shift+Esc to open`nDouble-click to kill", 1)
