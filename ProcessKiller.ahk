@@ -243,7 +243,10 @@ OpenKiller() {
     ; Shift ListView down to make room for custom header
     listView.Move(, 65,, 400)
 
-    ; Double-click to kill
+    ; Single-click on star column to toggle favorite
+    listView.OnEvent("Click", OnListClick)
+
+    ; Double-click to kill (but not on star column)
     listView.OnEvent("DoubleClick", (*) => KillSelected())
 
     ; Right-click → context menu (add/remove favorite, kill)
@@ -758,6 +761,31 @@ KillAllShown() {
     ShowKillTooltip(pids.Length)
     Sleep(300)
     RefreshList()
+}
+
+; Single-click handler — toggle favorite when clicking star column
+OnListClick(lv, rowIndex) {
+    if (rowIndex = 0)
+        return
+
+    ; Get click position relative to ListView client area
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    DllCall("ScreenToClient", "Ptr", lv.Hwnd, "Ptr", pt)
+    relX := NumGet(pt, 0, "Int")
+
+    ; First column is 30px wide — only toggle if click lands there
+    if (relX < 0 || relX > 30)
+        return
+
+    procName := lv.GetText(rowIndex, 2)
+    if (procName = "")
+        return
+
+    if IsFavorite(procName)
+        RemoveFavorite(procName)
+    else
+        AddFavorite(procName)
 }
 
 ; Right-click context menu on a row — add/remove favorite, kill
