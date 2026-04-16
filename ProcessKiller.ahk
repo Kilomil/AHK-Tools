@@ -54,6 +54,9 @@ searchBox := ""
 statusBar := ""
 showAllBox := ""
 clearBtn := ""
+btnRefresh := ""
+btnKill := ""
+btnKillAll := ""
 favHeader := ""
 procHeader := ""
 titleHeader := ""
@@ -171,11 +174,12 @@ ToggleKiller() {
 OpenKiller() {
     global killerGui, isOpen, listView, searchBox, statusBar, showAllBox, watchlist
 
-    killerGui := Gui("+AlwaysOnTop -MinimizeBox", "Process Killer")
+    killerGui := Gui("+AlwaysOnTop -MinimizeBox +Resize +MinSize850x500", "Process Killer")
     killerGui.BackColor := guiBg
     killerGui.SetFont("s10 c" guiText, "Segoe UI")
     killerGui.OnEvent("Close", (*) => CloseKiller())
     killerGui.OnEvent("Escape", (*) => CloseKiller())
+    killerGui.OnEvent("Size", OnGuiSize)
 
     ; Search bar
     killerGui.AddText("x10 y12 w50 h24 +0x200", "Filter:")
@@ -197,6 +201,7 @@ OpenKiller() {
     showAllBox.OnEvent("Click", (*) => RefreshList())
 
     ; Custom buttons with hover/click effects
+    global btnRefresh, btnKill, btnKillAll
     killerGui.SetFont("s9 c" guiText " Bold", "Segoe UI")
 
     btnRefresh := killerGui.AddText("x525 y10 w80 h26 +0x200 +Center Background" btnBg, "  Refresh  ")
@@ -267,6 +272,12 @@ OpenKiller() {
 
     isOpen := true
     RefreshList()
+
+    ; Auto-check "Show all" on open when favorites exist but none are running
+    if (showAllBox && !showAllBox.Value && listView.GetCount() = 0 && watchlist.Count > 0) {
+        showAllBox.Value := 1
+        RefreshList()
+    }
 }
 
 OnSearchChange(*) {
@@ -395,6 +406,57 @@ CloseKiller() {
         killerGui := ""
     }
     isOpen := false
+}
+
+OnGuiSize(thisGui, minMax, w, h) {
+    global listView, searchBox, statusBar, showAllBox, clearBtn
+    global btnRefresh, btnKill, btnKillAll
+    global favHeader, procHeader, titleHeader, memHeader
+
+    if (minMax = -1)  ; minimized
+        return
+
+    margin := 10
+    lvW := w - 2 * margin
+
+    ; Reposition buttons anchored to right edge
+    if btnKillAll
+        btnKillAll.Move(w - margin - 110, 10)
+    if btnKill
+        btnKill.Move(w - margin - 220, 10)
+    if btnRefresh
+        btnRefresh.Move(w - margin - 305, 10)
+
+    ; ListView fill available space
+    lvH := h - 100  ; top bar + status bar
+    if listView {
+        listView.Move(margin, 65, lvW, lvH)
+        ; Adjust column widths proportionally
+        colStar := 30
+        colProc := 210
+        colMem := 125
+        colTitle := lvW - colStar - colProc - colMem - 25  ; 25 for scrollbar
+        listView.ModifyCol(1, colStar)
+        listView.ModifyCol(2, colProc)
+        listView.ModifyCol(3, colTitle)
+        listView.ModifyCol(4, colMem)
+    }
+
+    ; Custom header row — stretch to match ListView width
+    if favHeader
+        favHeader.Move(margin, 45, 30)
+    if procHeader
+        procHeader.Move(margin + 30, 45, 210)
+    if titleHeader {
+        colTitle := lvW - 30 - 210 - 150 - 25
+        titleHeader.Move(margin + 240, 45, colTitle)
+    }
+    if memHeader
+        memHeader.Move(w - margin - 175, 45, 150)
+
+    ; Status bar at bottom
+    if statusBar
+        statusBar.Move(margin, h - 28, lvW)
 }
 
 ; ══════════════════════════════════════════════════════════════
